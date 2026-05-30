@@ -8,35 +8,41 @@ from PIL import Image, ImageDraw, ImageFont
 CACHE_DIR = Path("/tmp/editordevideo_cache")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GOOGLE_CX = os.getenv("GOOGLE_CX", "")
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
-
 _google_quota_exhausted = False
 
 
-def fetch_image(keyword: str) -> str:
+def _get_keys():
+    return (
+        os.getenv("GOOGLE_API_KEY", ""),
+        os.getenv("GOOGLE_CX", ""),
+        os.getenv("PEXELS_API_KEY", ""),
+    )
+
+
+def fetch_image(keyword: str, query: str = "") -> str:
     """
-    Returns local path to an image for the given keyword.
+    Returns local path to an image for the given keyword/query.
     Order: Google → Pexels → generated gradient fallback.
     Always returns a valid path.
     """
     global _google_quota_exhausted
 
-    cache_key = hashlib.md5(keyword.lower().encode()).hexdigest()[:12]
+    search_term = query if query else keyword
+    cache_key = hashlib.md5(search_term.lower().encode()).hexdigest()[:12]
     cached = CACHE_DIR / f"{cache_key}.jpg"
     if cached.exists():
         return str(cached)
 
+    google_key, google_cx, pexels_key = _get_keys()
     url = None
 
-    if GOOGLE_API_KEY and GOOGLE_CX and not _google_quota_exhausted:
-        url, exhausted = _google_search(keyword)
+    if google_key and google_cx and not _google_quota_exhausted:
+        url, exhausted = _google_search(search_term, google_key, google_cx)
         if exhausted:
             _google_quota_exhausted = True
 
-    if not url and PEXELS_API_KEY:
-        url = _pexels_search(keyword) or _pexels_search("abstract")
+    if not url and pexels_key:
+        url = _pexels_search(search_term, pexels_key) or _pexels_search(keyword, pexels_key)
 
     if url:
         path = _download(url, cached)
@@ -46,13 +52,13 @@ def fetch_image(keyword: str) -> str:
     return _generate_fallback(keyword, cached)
 
 
-def _google_search(query: str) -> tuple[str | None, bool]:
+def _google_search(query: str, api_key: str, cx: str) -> tuple:
     try:
         r = requests.get(
             "https://www.googleapis.com/customsearch/v1",
             params={
-                "key": GOOGLE_API_KEY,
-                "cx": GOOGLE_CX,
+                "key": api_key,
+                "cx": cx,
                 "q": query,
                 "searchType": "image",
                 "num": 3,
@@ -77,12 +83,12 @@ def _google_search(query: str) -> tuple[str | None, bool]:
     return None, False
 
 
-def _pexels_search(query: str) -> str | None:
+def _pexels_search(query: str, api_key: str) -> str | None:
     try:
         r = requests.get(
             "https://api.pexels.com/v1/search",
             params={"query": query, "per_page": 3, "orientation": "landscape"},
-            headers={"Authorization": PEXELS_API_KEY},
+            headers={"Authorization": api_key},
             timeout=8,
         )
         photos = r.json().get("photos", [])
