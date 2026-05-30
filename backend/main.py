@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
 from transcriber import transcribe
 from keywords import get_segments_with_keywords
@@ -48,16 +48,17 @@ def process(job_id: str, audio_path: str):
 
         _set(job_id, progress=30, message="Extrayendo palabras clave...")
 
-        segments = get_segments_with_keywords(words, segment_duration=5.0)
+        segments = get_segments_with_keywords(words, segment_duration=3.0)
 
         _set(job_id, progress=38, message=f"Buscando {len(segments)} imágenes...")
 
         for i, seg in enumerate(segments):
             kw = seg["keyword"]
-            img = fetch_image(kw)
+            query = seg.get("query", kw)
+            img = fetch_image(kw, query)
             seg["image_path"] = img
             pct = 38 + int((i + 1) / len(segments) * 42)
-            _set(job_id, progress=pct, message=f"Imágenes: {i+1}/{len(segments)} — {kw}")
+            _set(job_id, progress=pct, message=f"Imágenes: {i+1}/{len(segments)} — {query}")
 
         _set(job_id, progress=82, message="Armando video...")
 
